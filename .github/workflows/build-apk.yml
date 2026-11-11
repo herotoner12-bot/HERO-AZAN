@@ -12,6 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Finds the folder that contains settings.gradle.kts (works whether the project
+      # sits in the repo root or inside a sub-folder such as HERO-AZAN/).
+      - name: Locate project folder
+        run: |
+          f=$(find . -maxdepth 3 -name settings.gradle.kts -not -path "*/node_modules/*" | head -n 1)
+          if [ -z "$f" ]; then
+            echo "settings.gradle.kts not found. Files in repo:"; find . -maxdepth 3 -not -path "./.git/*" | head -100
+            exit 1
+          fi
+          dir=$(dirname "$f")
+          echo "Project folder: $dir"
+          echo "PROJECT_DIR=$dir" >> "$GITHUB_ENV"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -25,33 +38,36 @@ jobs:
           printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n84831b9409646a918e30573bab4c9c91346d8abd\nd56f5187479451eabf01fb78af6dfcb131a6481e\n" > "$ANDROID_HOME/licenses/android-sdk-license"
           printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
 
+      # Installs Gradle 8.14.3 itself, so the build does not depend on gradlew /
+      # gradle-wrapper.jar being present in the repository.
       - uses: gradle/actions/setup-gradle@v4
-
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+        with:
+          gradle-version: "8.14.3"
 
       # Unit tests: prayer times vs reference values, qibla bearing, Hijri dates, DST, reminders
       - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle --no-daemon testDebugUnitTest
 
       - name: Build APKs
-        run: ./gradlew --no-daemon assembleDebug assembleRelease
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle --no-daemon assembleDebug assembleRelease
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: HERO-AZAN-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload release APK (signed with the debug key)
         uses: actions/upload-artifact@v4
         with:
           name: HERO-AZAN-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
 
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
-          path: app/build/reports/tests/testDebugUnitTest
+          path: ${{ env.PROJECT_DIR }}/app/build/reports/tests/testDebugUnitTest
